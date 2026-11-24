@@ -1,0 +1,6 @@
+/target/
+/reboot-scheduler
+*.log
+*.log.*
+
+/dist/

@@ -1,0 +1,66 @@
+name: Check and build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup component add rustfmt clippy
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --release
+      - name: Build static Linux binary
+        run: |
+          cargo build --locked --release --target x86_64-unknown-linux-musl
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/reboot-scheduler dist/
+          cp reboot-scheduler.service LICENSE dist/
+          file dist/reboot-scheduler
+          if readelf -l dist/reboot-scheduler | grep -q INTERP; then
+            echo "Unexpected dynamic interpreter in musl build" >&2
+            exit 1
+          fi
+          timeout 10s dist/reboot-scheduler --dry-run
+          dist/reboot-scheduler --version
+          cd dist
+          sha256sum reboot-scheduler reboot-scheduler.service LICENSE > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reboot-scheduler-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: reboot-scheduler-linux-x86_64
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml)
+          test "$TAG" = "v$version"
+          gh release create "$TAG" dist/reboot-scheduler dist/reboot-scheduler.service dist/LICENSE dist/SHA256SUMS --verify-tag --generate-notes

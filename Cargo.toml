@@ -1,0 +1,20 @@
+[package]
+name = "reboot-scheduler"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "A tiny Linux reboot scheduler. Even servers need a nap."
+rust-version = "1.85"
+
+[[bin]]
+name = "reboot-scheduler"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
